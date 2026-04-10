@@ -1,0 +1,9 @@
+.venv/
+.venv312/
+.label-studio-test/
+.vscode/
+.DS_Store
+__pycache__/
+.pytest_cache/
+artifacts/
+data/
