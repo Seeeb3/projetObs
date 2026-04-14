@@ -2,6 +2,9 @@
 .venv312/
 .label-studio-test/
 .vscode/
+.env
+.env.*
+!.env.example
 .DS_Store
 __pycache__/
 .pytest_cache/
