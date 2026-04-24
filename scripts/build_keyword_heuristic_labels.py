@@ -1,4 +1,4 @@
-"""Build heliophysics heuristic labels from ADS keywords."""
+"""Build heliophysics heuristic labels from ADS corpus metadata."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Sequence
 
 import click
 import polars as pl
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 DEFAULT_POSITIVE_KEYWORDS: tuple[str, ...] = ("Sun: heliosphere",)
@@ -32,16 +32,23 @@ class KeywordHeuristicConfig(BaseModel):
     """Configuration for keyword heuristic labeling.
 
     Attributes:
-        keywords_csv: Path to the ADS keyword CSV that defines row order.
+        input_csv: Path to the ADS corpus metadata CSV that defines row order.
         output_csv: Path to the output heuristic label CSV.
+        output_with_abstracts_csv: Path to the output heuristic label CSV with abstracts.
         helio_only_output_csv: Optional path to the `helio`-only export CSV.
         positive_keywords: ADS keyword entries treated as positive when matched exactly.
         positive_fragments: ADS keyword fragments treated as positive.
         negative_fragments: Case-insensitive fragments treated as negative when present.
     """
 
-    keywords_csv: Path = Field(..., description="ADS keyword CSV used for row order")
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    input_csv: Path = Field(..., description="ADS corpus metadata CSV used for row order")
     output_csv: Path = Field(..., description="Output CSV with heuristic labels")
+    output_with_abstracts_csv: Path = Field(
+        ...,
+        description="Output CSV with heuristic labels and abstract metadata",
+    )
     helio_only_output_csv: Path = Field(..., description="Output CSV containing only helio rows")
     positive_keywords: tuple[str, ...] = Field(
         default=DEFAULT_POSITIVE_KEYWORDS,
@@ -161,7 +168,7 @@ def assign_keyword_label(
 
 
 def build_keyword_heuristic_dataframe(
-    keywords_df: pl.DataFrame,
+    source_dataframe: pl.DataFrame,
     positive_keywords: Sequence[str],
     positive_fragments: Sequence[str],
     negative_fragments: Sequence[str],
@@ -169,7 +176,7 @@ def build_keyword_heuristic_dataframe(
     """Build the heuristic-label DataFrame.
 
     Args:
-        keywords_df: Source DataFrame containing at least ``bibcode``, ``title``, and ``keywords``.
+        source_dataframe: Source DataFrame containing at least ``bibcode``, ``title``, and ``keywords``.
         positive_keywords: Exact ADS keywords treated as positive.
         positive_fragments: ADS keyword fragments treated as positive.
         negative_fragments: Case-insensitive keyword fragments treated as negative.
@@ -178,12 +185,12 @@ def build_keyword_heuristic_dataframe(
         DataFrame with heuristic label columns.
     """
     required_columns = {"bibcode", "title", "keywords"}
-    if not required_columns.issubset(set(keywords_df.columns)):
-        missing_columns = sorted(required_columns.difference(set(keywords_df.columns)))
-        raise ValueError(f"Keywords CSV is missing required columns: {missing_columns}")
+    if not required_columns.issubset(set(source_dataframe.columns)):
+        missing_columns = sorted(required_columns.difference(set(source_dataframe.columns)))
+        raise ValueError(f"Input CSV is missing required columns: {missing_columns}")
 
     rows: list[dict[str, str | int]] = []
-    for row in keywords_df.select(["bibcode", "title", "keywords"]).iter_rows(named=True):
+    for row in source_dataframe.select(["bibcode", "title", "keywords"]).iter_rows(named=True):
         keywords = split_keywords(row["keywords"])
         matched_exact_positive_keywords = match_exact_keywords(
             keywords=keywords,
@@ -232,25 +239,91 @@ def build_keyword_heuristic_dataframe(
     return pl.DataFrame(rows)
 
 
+def build_labeled_with_abstracts_dataframe(
+    source_dataframe: pl.DataFrame,
+    labeled_dataframe: pl.DataFrame,
+) -> pl.DataFrame:
+    """Build the labeled corpus DataFrame with abstract metadata attached.
+
+    Args:
+        source_dataframe: ADS corpus metadata DataFrame.
+        labeled_dataframe: Base heuristic-label DataFrame.
+
+    Returns:
+        Labeled DataFrame with ``abstract`` and ``abstract_status`` appended.
+
+    Raises:
+        ValueError: If abstract metadata columns are missing or duplicated bibcodes exist.
+    """
+
+    required_columns = {"abstract", "abstract_status"}
+    missing_columns = sorted(required_columns.difference(set(source_dataframe.columns)))
+    if missing_columns:
+        raise ValueError(f"Input CSV is missing abstract metadata columns: {missing_columns}")
+
+    _validate_unique_bibcodes(dataframe=source_dataframe, dataframe_name="source dataframe")
+    _validate_unique_bibcodes(dataframe=labeled_dataframe, dataframe_name="labeled dataframe")
+
+    abstract_lookup = source_dataframe.select(["bibcode", "abstract", "abstract_status"])
+    labeled_with_row_index = labeled_dataframe.with_row_index(name="_row_index")
+    return (
+        labeled_with_row_index.join(abstract_lookup, on="bibcode", how="left")
+        .sort("_row_index")
+        .drop("_row_index")
+    )
+
+
+def _validate_unique_bibcodes(dataframe: pl.DataFrame, dataframe_name: str) -> None:
+    """Validate that a DataFrame contains one row per bibcode.
+
+    Args:
+        dataframe: DataFrame containing a ``bibcode`` column.
+        dataframe_name: Human-readable DataFrame label for errors.
+
+    Raises:
+        ValueError: If duplicate bibcodes exist.
+    """
+
+    duplicate_bibcodes = (
+        dataframe.group_by("bibcode")
+        .agg(pl.len().alias("count"))
+        .filter(pl.col("count") > 1)
+        .get_column("bibcode")
+        .to_list()
+    )
+    if duplicate_bibcodes:
+        duplicate_preview = ", ".join(str(bibcode) for bibcode in duplicate_bibcodes[:10])
+        raise ValueError(f"{dataframe_name} contains duplicate bibcodes: {duplicate_preview}")
+
+
 @click.command()
 @click.option(
+    "--input-csv",
     "--keywords-csv",
+    "input_csv",
     type=click.Path(path_type=Path, dir_okay=False),
-    default=Path("data/processed/heliophysics_ads_keywords.csv"),
+    default=Path("data/processed/results/WIESP2022-NER_all_ads_metadata.csv"),
     show_default=True,
-    help="ADS keywords CSV used to preserve row order and metadata.",
+    help="ADS corpus metadata CSV used to preserve row order and metadata.",
 )
 @click.option(
     "--output-csv",
     type=click.Path(path_type=Path, dir_okay=False),
-    default=Path("data/processed/heliophysics_keyword_heuristic_labels.csv"),
+    default=Path("data/processed/results/WIESP2022-NER_all_keyword_heuristic_labels.csv"),
     show_default=True,
     help="Output CSV for heuristic labels.",
 )
 @click.option(
+    "--output-with-abstracts-csv",
+    type=click.Path(path_type=Path, dir_okay=False),
+    default=Path("data/processed/results/WIESP2022-NER_all_keyword_heuristic_labels_with_abstracts.csv"),
+    show_default=True,
+    help="Output CSV for heuristic labels with abstract metadata.",
+)
+@click.option(
     "--helio-only-output-csv",
     type=click.Path(path_type=Path, dir_okay=False),
-    default=Path("data/processed/heliophysics_keyword_helio_only.csv"),
+    default=Path("data/processed/results/WIESP2022-NER_all_helio_only.csv"),
     show_default=True,
     help="Output CSV containing only rows labeled as helio.",
 )
@@ -279,28 +352,30 @@ def build_keyword_heuristic_dataframe(
     help="Case-insensitive keyword fragment treated as negative.",
 )
 def main(
-    keywords_csv: Path,
+    input_csv: Path,
     output_csv: Path,
+    output_with_abstracts_csv: Path,
     helio_only_output_csv: Path,
     positive_keywords: tuple[str, ...],
     positive_fragments: tuple[str, ...],
     negative_fragments: tuple[str, ...],
 ) -> None:
-    """Build heuristic heliophysics labels from ADS keywords."""
+    """Build heuristic heliophysics labels from ADS corpus metadata."""
     config = KeywordHeuristicConfig(
-        keywords_csv=keywords_csv,
+        input_csv=input_csv,
         output_csv=output_csv,
+        output_with_abstracts_csv=output_with_abstracts_csv,
         helio_only_output_csv=helio_only_output_csv,
         positive_keywords=positive_keywords,
         positive_fragments=positive_fragments,
         negative_fragments=negative_fragments,
     )
 
-    click.echo(f"[*] Loading source rows from {config.keywords_csv}...")
-    keywords_df = pl.read_csv(config.keywords_csv)
+    click.echo(f"[*] Loading source rows from {config.input_csv}...")
+    source_dataframe = pl.read_csv(config.input_csv)
 
     labeled_df = build_keyword_heuristic_dataframe(
-        keywords_df=keywords_df,
+        source_dataframe=source_dataframe,
         positive_keywords=config.positive_keywords,
         positive_fragments=config.positive_fragments,
         negative_fragments=config.negative_fragments,
@@ -314,6 +389,19 @@ def main(
     config.helio_only_output_csv.parent.mkdir(parents=True, exist_ok=True)
     helio_only_df.write_csv(config.helio_only_output_csv)
     click.echo(f"[+] Wrote helio-only export to {config.helio_only_output_csv}")
+
+    if {"abstract", "abstract_status"}.issubset(set(source_dataframe.columns)):
+        labeled_with_abstracts_df = build_labeled_with_abstracts_dataframe(
+            source_dataframe=source_dataframe,
+            labeled_dataframe=labeled_df,
+        )
+        config.output_with_abstracts_csv.parent.mkdir(parents=True, exist_ok=True)
+        labeled_with_abstracts_df.write_csv(config.output_with_abstracts_csv)
+        click.echo(
+            f"[+] Wrote labeled corpus with abstracts to {config.output_with_abstracts_csv}"
+        )
+    else:
+        click.echo("[*] Source CSV has no abstract metadata; skipping with-abstracts export.")
 
     label_counts = (
         labeled_df.group_by("keyword_label")
