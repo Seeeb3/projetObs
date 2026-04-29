@@ -240,6 +240,54 @@ class ADSArticleEnrichmentRecord(BaseModel):
     arxiv_ids: List[str] = Field(default_factory=list)
 
 
+class ADSCorpusEnrichmentDoc(BaseModel):
+    """Represents the ADS enrichment bundle returned for one corpus bibcode.
+
+    Attributes:
+        bibcode: The entry's bibcode.
+        title: Ordered title candidates returned by ADS.
+        abstract: Abstract text when available.
+        keyword: Ordered keywords when available.
+        doi: Ordered DOI candidates returned by ADS.
+        author: Ordered author names when available.
+        identifier: Alternate identifiers such as DOI and arXiv ids.
+    """
+
+    bibcode: str
+    title: List[str] = Field(default_factory=list)
+    abstract: Optional[str] = None
+    keyword: List[str] = Field(default_factory=list)
+    doi: List[str] = Field(default_factory=list)
+    author: List[str] = Field(default_factory=list)
+    identifier: List[str] = Field(default_factory=list)
+
+
+class ADSCorpusEnrichmentResponse(BaseModel):
+    """Represents the response structure for corpus enrichment lookups."""
+
+    docs: List[ADSCorpusEnrichmentDoc]
+
+
+class ADSCorpusEnrichmentRecord(BaseModel):
+    """Normalized ADS corpus enrichment bundle used by the WIESP corpus pipeline.
+
+    Attributes:
+        title: First title string when available.
+        keywords: Ordered keywords when available.
+        abstract: Abstract text when available.
+        doi: First DOI string when available.
+        authors: Ordered author names when available.
+        arxiv_ids: Ordered arXiv identifiers discovered from ADS identifiers.
+    """
+
+    title: Optional[str] = None
+    keywords: List[str] = Field(default_factory=list)
+    abstract: Optional[str] = None
+    doi: Optional[str] = None
+    authors: List[str] = Field(default_factory=list)
+    arxiv_ids: List[str] = Field(default_factory=list)
+
+
 class ADSDoiResolutionDoc(BaseModel):
     """Represents the ADS DOI-resolution bundle returned for one record.
 
@@ -453,6 +501,34 @@ def build_doi_resolution_record(
         keywords=resolved_keywords,
         authors=resolved_authors,
         abstract=resolved_abstract,
+        arxiv_ids=extract_arxiv_ids_from_identifiers(doc.identifier),
+    )
+
+
+def build_corpus_enrichment_record(
+    doc: ADSCorpusEnrichmentDoc,
+) -> ADSCorpusEnrichmentRecord:
+    """Normalize one ADS corpus-enrichment document into a pipeline record.
+
+    Args:
+        doc: Raw corpus-enrichment document returned by ADS.
+
+    Returns:
+        Normalized corpus-enrichment record.
+    """
+
+    resolved_title = next((title.strip() for title in doc.title if title and title.strip()), None)
+    resolved_keywords = [keyword.strip() for keyword in doc.keyword if keyword and keyword.strip()]
+    resolved_abstract = doc.abstract.strip() if doc.abstract and doc.abstract.strip() else None
+    resolved_doi = next((doi.strip() for doi in doc.doi if doi and doi.strip()), None)
+    resolved_authors = [author.strip() for author in doc.author if author and author.strip()]
+
+    return ADSCorpusEnrichmentRecord(
+        title=resolved_title,
+        keywords=resolved_keywords,
+        abstract=resolved_abstract,
+        doi=resolved_doi,
+        authors=resolved_authors,
         arxiv_ids=extract_arxiv_ids_from_identifiers(doc.identifier),
     )
 
@@ -782,6 +858,41 @@ class ADSClient:
         for bibcode in bibcodes:
             if bibcode not in mapping:
                 mapping[bibcode] = ADSFullMetadataRecord()
+
+        return mapping
+
+    def get_corpus_enrichment_from_bibcodes(
+        self,
+        bibcodes: List[str],
+    ) -> Dict[str, ADSCorpusEnrichmentRecord]:
+        """Fetch title, keywords, abstract, DOI, authors, and arXiv ids in one ADS query.
+
+        Args:
+            bibcodes: List of bibcodes to resolve.
+
+        Returns:
+            Dictionary mapping each bibcode to a normalized corpus enrichment bundle.
+        """
+
+        data = self._run_query(
+            bibcodes=bibcodes,
+            fields="bibcode,title,abstract,keyword,doi,author,identifier",
+        )
+        if "response" not in data:
+            return {
+                bibcode: ADSCorpusEnrichmentRecord()
+                for bibcode in bibcodes
+            }
+
+        ads_res = ADSCorpusEnrichmentResponse(docs=data["response"]["docs"])
+
+        mapping: Dict[str, ADSCorpusEnrichmentRecord] = {}
+        for doc in ads_res.docs:
+            mapping[doc.bibcode] = build_corpus_enrichment_record(doc)
+
+        for bibcode in bibcodes:
+            if bibcode not in mapping:
+                mapping[bibcode] = ADSCorpusEnrichmentRecord()
 
         return mapping
 

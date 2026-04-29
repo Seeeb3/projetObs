@@ -1,4 +1,4 @@
-"""Fetch ADS title, keyword, and abstract metadata for a bibcode corpus."""
+"""Fetch ADS corpus enrichment metadata for a bibcode corpus."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-from tools.ads_api import ADSClient, ADSFullMetadataRecord
+from tools.ads_api import ADSClient, ADSCorpusEnrichmentRecord, normalize_doi_text
 
 
 DEFAULT_INPUT_TXT: Final[Path] = (
@@ -73,6 +73,10 @@ class ADSCorpusMetadataRecord(BaseModel):
         keywords: Ordered ADS keywords when available.
         abstract: Resolved abstract text when available.
         abstract_status: Abstract retrieval status.
+        doi: Resolved DOI string when available.
+        doi_normalized: Canonical lowercase DOI when available.
+        authors: Ordered author names when available.
+        arxiv_ids: Ordered arXiv identifiers when available.
     """
 
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -81,6 +85,10 @@ class ADSCorpusMetadataRecord(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     abstract: str | None = None
     abstract_status: str = Field(..., min_length=1)
+    doi: str | None = None
+    doi_normalized: str | None = None
+    authors: list[str] = Field(default_factory=list)
+    arxiv_ids: list[str] = Field(default_factory=list)
 
 
 def read_bibcodes(input_txt: Path) -> list[str]:
@@ -109,12 +117,12 @@ def read_bibcodes(input_txt: Path) -> list[str]:
 
 
 def normalize_ads_corpus_metadata_record(
-    record: ADSFullMetadataRecord,
+    record: ADSCorpusEnrichmentRecord,
 ) -> ADSCorpusMetadataRecord:
-    """Normalize one ADS full-metadata record for the corpus CSV.
+    """Normalize one ADS corpus-enrichment record for the corpus CSV.
 
     Args:
-        record: ADS full-metadata record.
+        record: ADS corpus-enrichment record.
 
     Returns:
         Normalized ADS corpus metadata record.
@@ -123,6 +131,10 @@ def normalize_ads_corpus_metadata_record(
     resolved_title = (record.title or "").strip() or None
     resolved_keywords = [keyword.strip() for keyword in record.keywords if keyword and keyword.strip()]
     resolved_abstract = (record.abstract or "").strip() or None
+    resolved_doi = (record.doi or "").strip() or None
+    resolved_doi_normalized = normalize_doi_text(resolved_doi) or None
+    resolved_authors = [author.strip() for author in record.authors if author and author.strip()]
+    resolved_arxiv_ids = [arxiv_id.strip() for arxiv_id in record.arxiv_ids if arxiv_id and arxiv_id.strip()]
 
     if resolved_abstract is None:
         return ADSCorpusMetadataRecord(
@@ -130,6 +142,10 @@ def normalize_ads_corpus_metadata_record(
             keywords=resolved_keywords,
             abstract=None,
             abstract_status="missing_abstract",
+            doi=resolved_doi,
+            doi_normalized=resolved_doi_normalized,
+            authors=resolved_authors,
+            arxiv_ids=resolved_arxiv_ids,
         )
 
     return ADSCorpusMetadataRecord(
@@ -137,6 +153,10 @@ def normalize_ads_corpus_metadata_record(
         keywords=resolved_keywords,
         abstract=resolved_abstract,
         abstract_status="success",
+        doi=resolved_doi,
+        doi_normalized=resolved_doi_normalized,
+        authors=resolved_authors,
+        arxiv_ids=resolved_arxiv_ids,
     )
 
 
@@ -146,7 +166,7 @@ def fetch_ads_corpus_metadata_by_bibcode(
     batch_size: int,
     sleep_seconds: float,
 ) -> dict[str, ADSCorpusMetadataRecord]:
-    """Fetch ADS title, keyword, and abstract metadata in batches.
+    """Fetch ADS corpus enrichment metadata in batches.
 
     Args:
         client: ADS client instance.
@@ -156,6 +176,9 @@ def fetch_ads_corpus_metadata_by_bibcode(
 
     Returns:
         Mapping from bibcode to normalized ADS corpus metadata.
+
+    Raises:
+        RuntimeError: If ADS fails for any requested batch.
     """
 
     records_by_bibcode: dict[str, ADSCorpusMetadataRecord] = {}
@@ -172,23 +195,52 @@ def fetch_ads_corpus_metadata_by_bibcode(
         )
 
         try:
-            batch_metadata = client.get_full_metadata_from_bibcodes(batch_bibcodes)
+            batch_metadata = client.get_corpus_enrichment_from_bibcodes(batch_bibcodes)
         except Exception as exc:
-            click.echo(f"[!] Error processing batch {batch_index}: {exc}", err=True)
-            for bibcode in batch_bibcodes:
-                records_by_bibcode[bibcode] = ADSCorpusMetadataRecord(
-                    title=None,
-                    keywords=[],
-                    abstract=None,
-                    abstract_status="batch_error",
-                )
-            continue
+            raise RuntimeError(
+                "ADS batch fetch failed for "
+                f"batch {batch_index}/{total_batches} with {len(batch_bibcodes)} bibcodes."
+            ) from exc
 
         for bibcode in batch_bibcodes:
-            ads_record = batch_metadata.get(bibcode, ADSFullMetadataRecord())
+            ads_record = batch_metadata.get(bibcode, ADSCorpusEnrichmentRecord())
             records_by_bibcode[bibcode] = normalize_ads_corpus_metadata_record(ads_record)
 
     return records_by_bibcode
+
+
+def serialize_pipe_values(values: list[str]) -> str:
+    """Serialize ordered values to a pipe-delimited CSV cell.
+
+    Args:
+        values: Values to serialize.
+
+    Returns:
+        Pipe-delimited string with blanks removed and duplicates removed.
+    """
+
+    serialized_values: list[str] = []
+    seen_values: set[str] = set()
+    for value in values:
+        cleaned_value = value.strip()
+        if not cleaned_value or cleaned_value in seen_values:
+            continue
+        seen_values.add(cleaned_value)
+        serialized_values.append(cleaned_value)
+    return " | ".join(serialized_values)
+
+
+def serialize_authors(authors: list[str]) -> str:
+    """Serialize ordered author names to one CSV cell.
+
+    Args:
+        authors: Ordered author names.
+
+    Returns:
+        Semicolon-delimited author string.
+    """
+
+    return "; ".join(author for author in (author.strip() for author in authors) if author)
 
 
 def build_ads_corpus_metadata_dataframe(
@@ -214,6 +266,10 @@ def build_ads_corpus_metadata_dataframe(
                 keywords=[],
                 abstract=None,
                 abstract_status="missing_abstract",
+                doi=None,
+                doi_normalized=None,
+                authors=[],
+                arxiv_ids=[],
             ),
         )
         rows.append(
@@ -223,6 +279,10 @@ def build_ads_corpus_metadata_dataframe(
                 "keywords": " | ".join(record.keywords),
                 "abstract": record.abstract or "",
                 "abstract_status": record.abstract_status,
+                "doi": record.doi or "",
+                "doi_normalized": record.doi_normalized or "",
+                "authors": serialize_authors(record.authors),
+                "arxiv_ids": serialize_pipe_values(record.arxiv_ids),
             }
         )
 
@@ -254,7 +314,7 @@ def main(
     sleep_seconds: float,
     limit: int,
 ) -> None:
-    """Fetch ADS title, keyword, and abstract metadata for a bibcode corpus."""
+    """Fetch ADS corpus enrichment metadata for a bibcode corpus."""
 
     try:
         config = ADSCorpusMetadataConfig(
@@ -278,14 +338,17 @@ def main(
         click.echo("[!] No bibcodes found. Exiting.")
         return
 
-    click.echo("[*] Fetching ADS full metadata using ADS_TOKEN from .env...")
+    click.echo("[*] Fetching ADS corpus enrichment using ADS_TOKEN from .env...")
     client = ADSClient()
-    records_by_bibcode = fetch_ads_corpus_metadata_by_bibcode(
-        client=client,
-        bibcodes=bibcodes,
-        batch_size=config.batch_size,
-        sleep_seconds=config.sleep_seconds,
-    )
+    try:
+        records_by_bibcode = fetch_ads_corpus_metadata_by_bibcode(
+            client=client,
+            bibcodes=bibcodes,
+            batch_size=config.batch_size,
+            sleep_seconds=config.sleep_seconds,
+        )
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
     metadata_dataframe = build_ads_corpus_metadata_dataframe(
         bibcodes=bibcodes,
         records_by_bibcode=records_by_bibcode,

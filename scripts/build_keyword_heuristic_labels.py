@@ -26,6 +26,46 @@ DEFAULT_NEGATIVE_FRAGMENTS: tuple[str, ...] = (
     "galaxies: active",
     "dark matter",
 )
+LABEL_COLUMNS: tuple[str, ...] = (
+    "bibcode",
+    "title",
+    "keywords",
+    "matched_positive_keywords",
+    "matched_positive_rules",
+    "matched_negative_keywords",
+    "matched_negative_fragments",
+    "positive_match_count",
+    "negative_match_count",
+    "keyword_label",
+)
+ENRICHED_SOURCE_REQUIRED_COLUMNS: tuple[str, ...] = (
+    "bibcode",
+    "title",
+    "keywords",
+    "abstract",
+    "abstract_status",
+    "doi",
+    "doi_normalized",
+    "authors",
+    "arxiv_ids",
+)
+MERGED_OUTPUT_COLUMNS: tuple[str, ...] = (
+    "bibcode",
+    "title",
+    "keywords",
+    "matched_positive_keywords",
+    "matched_positive_rules",
+    "matched_negative_keywords",
+    "matched_negative_fragments",
+    "positive_match_count",
+    "negative_match_count",
+    "keyword_label",
+    "doi",
+    "doi_normalized",
+    "arxiv_ids",
+    "authors",
+    "abstract",
+)
 
 
 class KeywordHeuristicConfig(BaseModel):
@@ -36,6 +76,7 @@ class KeywordHeuristicConfig(BaseModel):
         output_csv: Path to the output heuristic label CSV.
         output_with_abstracts_csv: Path to the output heuristic label CSV with abstracts.
         helio_only_output_csv: Optional path to the `helio`-only export CSV.
+        merged_output_csv: Path to the final canonical helio merged export CSV.
         positive_keywords: ADS keyword entries treated as positive when matched exactly.
         positive_fragments: ADS keyword fragments treated as positive.
         negative_fragments: Case-insensitive fragments treated as negative when present.
@@ -50,6 +91,7 @@ class KeywordHeuristicConfig(BaseModel):
         description="Output CSV with heuristic labels and abstract metadata",
     )
     helio_only_output_csv: Path = Field(..., description="Output CSV containing only helio rows")
+    merged_output_csv: Path = Field(..., description="Canonical output CSV containing merged helio rows")
     positive_keywords: tuple[str, ...] = Field(
         default=DEFAULT_POSITIVE_KEYWORDS,
         description="ADS keyword entries treated as positive when matched exactly",
@@ -236,40 +278,85 @@ def build_keyword_heuristic_dataframe(
             }
         )
 
-    return pl.DataFrame(rows)
+    return pl.DataFrame(rows).select(list(LABEL_COLUMNS))
 
 
-def build_labeled_with_abstracts_dataframe(
+def build_labeled_enriched_dataframe(
     source_dataframe: pl.DataFrame,
     labeled_dataframe: pl.DataFrame,
 ) -> pl.DataFrame:
-    """Build the labeled corpus DataFrame with abstract metadata attached.
+    """Build the labeled corpus DataFrame with enriched ADS metadata attached.
 
     Args:
         source_dataframe: ADS corpus metadata DataFrame.
         labeled_dataframe: Base heuristic-label DataFrame.
 
     Returns:
-        Labeled DataFrame with ``abstract`` and ``abstract_status`` appended.
+        Labeled DataFrame with enriched ADS metadata appended in source order.
 
     Raises:
-        ValueError: If abstract metadata columns are missing or duplicated bibcodes exist.
+        ValueError: If required enrichment columns are missing or duplicated bibcodes exist.
     """
 
-    required_columns = {"abstract", "abstract_status"}
-    missing_columns = sorted(required_columns.difference(set(source_dataframe.columns)))
-    if missing_columns:
-        raise ValueError(f"Input CSV is missing abstract metadata columns: {missing_columns}")
-
-    _validate_unique_bibcodes(dataframe=source_dataframe, dataframe_name="source dataframe")
+    validate_enriched_source_dataframe(source_dataframe=source_dataframe)
     _validate_unique_bibcodes(dataframe=labeled_dataframe, dataframe_name="labeled dataframe")
 
-    abstract_lookup = source_dataframe.select(["bibcode", "abstract", "abstract_status"])
-    labeled_with_row_index = labeled_dataframe.with_row_index(name="_row_index")
+    label_columns_to_join = [
+        column_name
+        for column_name in LABEL_COLUMNS
+        if column_name not in {"title", "keywords"}
+    ]
+    source_with_row_index = source_dataframe.with_row_index(name="_row_index")
     return (
-        labeled_with_row_index.join(abstract_lookup, on="bibcode", how="left")
+        source_with_row_index.join(
+            labeled_dataframe.select(label_columns_to_join),
+            on="bibcode",
+            how="left",
+        )
         .sort("_row_index")
         .drop("_row_index")
+    )
+
+
+def validate_enriched_source_dataframe(source_dataframe: pl.DataFrame) -> None:
+    """Validate that the source dataframe contains the enriched ADS schema.
+
+    Args:
+        source_dataframe: ADS corpus metadata dataframe.
+
+    Raises:
+        ValueError: If the enriched ADS schema is missing or bibcodes are duplicated.
+    """
+
+    missing_columns = sorted(set(ENRICHED_SOURCE_REQUIRED_COLUMNS).difference(set(source_dataframe.columns)))
+    if missing_columns:
+        missing_text = ", ".join(missing_columns)
+        raise ValueError(
+            "Input CSV is missing required enrichment columns: "
+            f"{missing_text}. Re-run fetch_ads_corpus_metadata.py to regenerate the enriched corpus CSV."
+        )
+
+    _validate_unique_bibcodes(dataframe=source_dataframe, dataframe_name="source dataframe")
+
+
+def build_helio_merged_dataframe(labeled_enriched_dataframe: pl.DataFrame) -> pl.DataFrame:
+    """Build the canonical merged helio DataFrame without additional ADS fetches.
+
+    Args:
+        labeled_enriched_dataframe: Source enriched dataframe with label columns attached.
+
+    Returns:
+        Canonical merged helio DataFrame expected by downstream consumers.
+    """
+
+    missing_columns = sorted(set(MERGED_OUTPUT_COLUMNS).difference(set(labeled_enriched_dataframe.columns)))
+    if missing_columns:
+        raise ValueError(f"Labeled enriched dataframe is missing columns: {missing_columns}")
+
+    return (
+        labeled_enriched_dataframe
+        .filter(pl.col("keyword_label") == "helio")
+        .select(list(MERGED_OUTPUT_COLUMNS))
     )
 
 
@@ -328,6 +415,13 @@ def _validate_unique_bibcodes(dataframe: pl.DataFrame, dataframe_name: str) -> N
     help="Output CSV containing only rows labeled as helio.",
 )
 @click.option(
+    "--merged-output-csv",
+    type=click.Path(path_type=Path, dir_okay=False),
+    default=Path("data/processed/results/WIESP2022-NER_all_helio_only_merged.csv"),
+    show_default=True,
+    help="Canonical merged helio CSV for downstream consumers.",
+)
+@click.option(
     "--positive-keyword",
     "positive_keywords",
     multiple=True,
@@ -356,59 +450,68 @@ def main(
     output_csv: Path,
     output_with_abstracts_csv: Path,
     helio_only_output_csv: Path,
+    merged_output_csv: Path,
     positive_keywords: tuple[str, ...],
     positive_fragments: tuple[str, ...],
     negative_fragments: tuple[str, ...],
 ) -> None:
     """Build heuristic heliophysics labels from ADS corpus metadata."""
-    config = KeywordHeuristicConfig(
-        input_csv=input_csv,
-        output_csv=output_csv,
-        output_with_abstracts_csv=output_with_abstracts_csv,
-        helio_only_output_csv=helio_only_output_csv,
-        positive_keywords=positive_keywords,
-        positive_fragments=positive_fragments,
-        negative_fragments=negative_fragments,
-    )
+    try:
+        config = KeywordHeuristicConfig(
+            input_csv=input_csv,
+            output_csv=output_csv,
+            output_with_abstracts_csv=output_with_abstracts_csv,
+            helio_only_output_csv=helio_only_output_csv,
+            merged_output_csv=merged_output_csv,
+            positive_keywords=positive_keywords,
+            positive_fragments=positive_fragments,
+            negative_fragments=negative_fragments,
+        )
 
-    click.echo(f"[*] Loading source rows from {config.input_csv}...")
-    source_dataframe = pl.read_csv(config.input_csv)
+        click.echo(f"[*] Loading source rows from {config.input_csv}...")
+        source_dataframe = pl.read_csv(config.input_csv)
+        validate_enriched_source_dataframe(source_dataframe=source_dataframe)
 
-    labeled_df = build_keyword_heuristic_dataframe(
-        source_dataframe=source_dataframe,
-        positive_keywords=config.positive_keywords,
-        positive_fragments=config.positive_fragments,
-        negative_fragments=config.negative_fragments,
-    )
+        labeled_df = build_keyword_heuristic_dataframe(
+            source_dataframe=source_dataframe,
+            positive_keywords=config.positive_keywords,
+            positive_fragments=config.positive_fragments,
+            negative_fragments=config.negative_fragments,
+        )
 
-    config.output_csv.parent.mkdir(parents=True, exist_ok=True)
-    labeled_df.write_csv(config.output_csv)
-    click.echo(f"[+] Wrote heuristic keyword labels to {config.output_csv}")
+        config.output_csv.parent.mkdir(parents=True, exist_ok=True)
+        labeled_df.write_csv(config.output_csv)
+        click.echo(f"[+] Wrote heuristic keyword labels to {config.output_csv}")
 
-    helio_only_df = labeled_df.filter(pl.col("keyword_label") == "helio")
-    config.helio_only_output_csv.parent.mkdir(parents=True, exist_ok=True)
-    helio_only_df.write_csv(config.helio_only_output_csv)
-    click.echo(f"[+] Wrote helio-only export to {config.helio_only_output_csv}")
-
-    if {"abstract", "abstract_status"}.issubset(set(source_dataframe.columns)):
-        labeled_with_abstracts_df = build_labeled_with_abstracts_dataframe(
+        labeled_enriched_df = build_labeled_enriched_dataframe(
             source_dataframe=source_dataframe,
             labeled_dataframe=labeled_df,
         )
         config.output_with_abstracts_csv.parent.mkdir(parents=True, exist_ok=True)
-        labeled_with_abstracts_df.write_csv(config.output_with_abstracts_csv)
+        labeled_enriched_df.write_csv(config.output_with_abstracts_csv)
         click.echo(
-            f"[+] Wrote labeled corpus with abstracts to {config.output_with_abstracts_csv}"
+            f"[+] Wrote labeled corpus with ADS enrichment to {config.output_with_abstracts_csv}"
         )
-    else:
-        click.echo("[*] Source CSV has no abstract metadata; skipping with-abstracts export.")
 
-    label_counts = (
-        labeled_df.group_by("keyword_label")
-        .len()
-        .rename({"len": "row_count"})
-        .sort("keyword_label")
-    )
+        helio_only_df = labeled_enriched_df.filter(pl.col("keyword_label") == "helio")
+        config.helio_only_output_csv.parent.mkdir(parents=True, exist_ok=True)
+        helio_only_df.write_csv(config.helio_only_output_csv)
+        click.echo(f"[+] Wrote helio-only export to {config.helio_only_output_csv}")
+
+        helio_merged_df = build_helio_merged_dataframe(labeled_enriched_dataframe=labeled_enriched_df)
+        config.merged_output_csv.parent.mkdir(parents=True, exist_ok=True)
+        helio_merged_df.write_csv(config.merged_output_csv)
+        click.echo(f"[+] Wrote merged helio export to {config.merged_output_csv}")
+
+        label_counts = (
+            labeled_df.group_by("keyword_label")
+            .len()
+            .rename({"len": "row_count"})
+            .sort("keyword_label")
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
     click.echo("[*] Label counts:")
     for row in label_counts.iter_rows(named=True):
         click.echo(f"    - {row['keyword_label']}: {row['row_count']}")
