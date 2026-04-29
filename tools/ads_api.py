@@ -16,12 +16,43 @@ ADS_FULLTEXT_SOURCE_PRIORITY: Final[List[str]] = [
     "PUB_HTML",
     "EPRINT_HTML",
 ]
+DOI_PREFIXES: Final[tuple[str, ...]] = (
+    "https://doi.org/",
+    "http://doi.org/",
+    "doi:",
+)
 ARXIV_PREFIX_PATTERN: Final[Pattern[str]] = re.compile(r"^arxiv:(?P<arxiv_id>.+)$", re.IGNORECASE)
 ARXIV_NEW_ID_PATTERN: Final[Pattern[str]] = re.compile(r"^\d{4}\.\d{4,5}(?:v\d+)?$", re.IGNORECASE)
 ARXIV_OLD_ID_PATTERN: Final[Pattern[str]] = re.compile(
     r"^[a-z-]+(?:\.[A-Za-z]{2})?/\d{7}(?:v\d+)?$",
     re.IGNORECASE,
 )
+
+
+def normalize_doi_text(raw_doi: str | None) -> str:
+    """Normalize a DOI-like string to a canonical lowercase value.
+
+    Args:
+        raw_doi: Raw DOI value when available.
+
+    Returns:
+        Canonical DOI string without URL prefix, or an empty string when missing.
+    """
+
+    if raw_doi is None:
+        return ""
+
+    normalized_doi = raw_doi.strip()
+    if not normalized_doi:
+        return ""
+
+    lowered_doi = normalized_doi.lower()
+    for prefix in DOI_PREFIXES:
+        if lowered_doi.startswith(prefix):
+            normalized_doi = normalized_doi[len(prefix) :]
+            break
+
+    return normalized_doi.strip().lower()
 
 
 class ADSDoc(BaseModel):
@@ -209,6 +240,56 @@ class ADSArticleEnrichmentRecord(BaseModel):
     arxiv_ids: List[str] = Field(default_factory=list)
 
 
+class ADSDoiResolutionDoc(BaseModel):
+    """Represents the ADS DOI-resolution bundle returned for one record.
+
+    Attributes:
+        bibcode: The entry's bibcode.
+        doi: Ordered DOI candidates returned by ADS.
+        title: Ordered title candidates returned by ADS.
+        abstract: Abstract text when available.
+        keyword: Ordered keywords when available.
+        author: Ordered author names when available.
+        identifier: Alternate identifiers such as DOI and arXiv ids.
+    """
+
+    bibcode: str
+    doi: List[str] = Field(default_factory=list)
+    title: List[str] = Field(default_factory=list)
+    abstract: Optional[str] = None
+    keyword: List[str] = Field(default_factory=list)
+    author: List[str] = Field(default_factory=list)
+    identifier: List[str] = Field(default_factory=list)
+
+
+class ADSDoiResolutionResponse(BaseModel):
+    """Represents the response structure for DOI-resolution lookups."""
+
+    docs: List[ADSDoiResolutionDoc]
+
+
+class ADSDoiResolutionRecord(BaseModel):
+    """Normalized ADS DOI-resolution record used by the Bapt DOI pipeline.
+
+    Attributes:
+        bibcode: Resolved ADS bibcode when available.
+        doi: Preferred DOI returned by ADS when available.
+        title: First title string when available.
+        keywords: Ordered keywords when available.
+        authors: Ordered author names when available.
+        abstract: Abstract text when available.
+        arxiv_ids: Ordered arXiv identifiers discovered from ADS identifiers.
+    """
+
+    bibcode: Optional[str] = None
+    doi: Optional[str] = None
+    title: Optional[str] = None
+    keywords: List[str] = Field(default_factory=list)
+    authors: List[str] = Field(default_factory=list)
+    abstract: Optional[str] = None
+    arxiv_ids: List[str] = Field(default_factory=list)
+
+
 class ADSFullMetadataDoc(BaseModel):
     """Represents title, abstract, and keyword fields returned by NASA ADS API.
 
@@ -344,6 +425,38 @@ def build_article_enrichment_record(
     )
 
 
+def build_doi_resolution_record(
+    doc: ADSDoiResolutionDoc,
+) -> ADSDoiResolutionRecord:
+    """Normalize one ADS DOI-resolution document into a pipeline record.
+
+    Args:
+        doc: Raw DOI-resolution document returned by ADS.
+
+    Returns:
+        Normalized DOI-resolution record.
+    """
+
+    resolved_doi = next(
+        (candidate for candidate in (normalize_doi_text(value) for value in doc.doi) if candidate),
+        None,
+    )
+    resolved_title = next((title.strip() for title in doc.title if title and title.strip()), None)
+    resolved_keywords = [keyword.strip() for keyword in doc.keyword if keyword and keyword.strip()]
+    resolved_authors = [author.strip() for author in doc.author if author and author.strip()]
+    resolved_abstract = doc.abstract.strip() if doc.abstract and doc.abstract.strip() else None
+
+    return ADSDoiResolutionRecord(
+        bibcode=doc.bibcode.strip() or None,
+        doi=resolved_doi,
+        title=resolved_title,
+        keywords=resolved_keywords,
+        authors=resolved_authors,
+        abstract=resolved_abstract,
+        arxiv_ids=extract_arxiv_ids_from_identifiers(doc.identifier),
+    )
+
+
 class ADSClient:
     """Client for interacting with the NASA ADS API."""
 
@@ -368,23 +481,22 @@ class ADSClient:
 
         return {"Authorization": f"Bearer {self.token}"}
 
-    def _run_query(self, bibcodes: List[str], fields: str) -> Dict[str, object]:
-        """Runs a batched ADS search query for a list of bibcodes.
+    def _run_search_query(self, query: str, rows: int, fields: str) -> Dict[str, object]:
+        """Run one ADS search query.
 
         Args:
-            bibcodes: Bibcodes to query.
+            query: ADS query string.
+            rows: Number of rows requested from ADS.
             fields: Comma-separated ADS fields to retrieve.
 
         Returns:
             Raw JSON payload returned by ADS.
         """
         headers = self._get_headers()
-
-        query_str = " OR ".join(f'"{bc}"' for bc in bibcodes)
         params = {
-            "q": f"identifier:({query_str})",
+            "q": query,
             "fl": fields,
-            "rows": len(bibcodes),
+            "rows": rows,
         }
 
         response = requests.get(
@@ -395,6 +507,42 @@ class ADSClient:
         )
         response.raise_for_status()
         return response.json()
+
+    def _run_query(self, bibcodes: List[str], fields: str) -> Dict[str, object]:
+        """Run a batched ADS search query for a list of bibcodes.
+
+        Args:
+            bibcodes: Bibcodes to query.
+            fields: Comma-separated ADS fields to retrieve.
+
+        Returns:
+            Raw JSON payload returned by ADS.
+        """
+
+        query_str = " OR ".join(f'"{bc}"' for bc in bibcodes)
+        return self._run_search_query(
+            query=f"identifier:({query_str})",
+            rows=len(bibcodes),
+            fields=fields,
+        )
+
+    def _run_doi_query(self, dois: List[str], fields: str) -> Dict[str, object]:
+        """Run a batched ADS search query for a list of normalized DOIs.
+
+        Args:
+            dois: Normalized DOI strings to query.
+            fields: Comma-separated ADS fields to retrieve.
+
+        Returns:
+            Raw JSON payload returned by ADS.
+        """
+
+        query_str = " OR ".join(f'doi:"{doi}"' for doi in dois)
+        return self._run_search_query(
+            query=query_str,
+            rows=len(dois),
+            fields=fields,
+        )
 
     def get_dois_from_bibcodes(self, bibcodes: List[str]) -> Dict[str, Optional[str]]:
         """Fetches DOIs for a list of bibcodes using search query endpoint (GET).
@@ -634,6 +782,50 @@ class ADSClient:
         for bibcode in bibcodes:
             if bibcode not in mapping:
                 mapping[bibcode] = ADSFullMetadataRecord()
+
+        return mapping
+
+    def get_metadata_from_dois(
+        self,
+        dois: List[str],
+    ) -> Dict[str, ADSDoiResolutionRecord]:
+        """Fetch ADS metadata by DOI and map results back to requested DOIs.
+
+        Args:
+            dois: Normalized DOI strings to resolve.
+
+        Returns:
+            Dictionary mapping each requested DOI to a normalized ADS record.
+        """
+
+        data = self._run_doi_query(
+            dois=dois,
+            fields="bibcode,doi,title,abstract,keyword,author,identifier",
+        )
+        if "response" not in data:
+            return {doi: ADSDoiResolutionRecord() for doi in dois}
+
+        ads_res = ADSDoiResolutionResponse(docs=data["response"]["docs"])
+        requested_dois = set(dois)
+        mapping: Dict[str, ADSDoiResolutionRecord] = {}
+
+        for doc in ads_res.docs:
+            record = build_doi_resolution_record(doc)
+            doc_dois = [
+                normalized_doi
+                for normalized_doi in (normalize_doi_text(value) for value in doc.doi)
+                if normalized_doi
+            ]
+            matched_requested_dois = [
+                normalized_doi
+                for normalized_doi in doc_dois
+                if normalized_doi in requested_dois
+            ]
+            for matched_doi in matched_requested_dois:
+                mapping.setdefault(matched_doi, record)
+
+        for doi in dois:
+            mapping.setdefault(doi, ADSDoiResolutionRecord())
 
         return mapping
 
