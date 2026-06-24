@@ -11,7 +11,7 @@ import click
 import polars as pl
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
+PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
