@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Final, Sequence
 
 import argilla as rg
@@ -168,6 +169,60 @@ def upload_dataset_records(
     dataset.create()
     dataset.records.log(records=list(records), batch_size=batch_size)
     return dataset
+
+
+def create_argilla_client(api_url: str, api_key: str) -> rg.Argilla:
+    """Create one live Argilla client.
+
+    Args:
+        api_url: Argilla API URL.
+        api_key: Argilla API key.
+
+    Returns:
+        Configured Argilla client.
+    """
+
+    return rg.Argilla(api_url=api_url, api_key=api_key)
+
+
+def discover_default_workspace_name(client: rg.Argilla) -> str:
+    """Discover the default available workspace name.
+
+    Args:
+        client: Live Argilla client.
+
+    Returns:
+        Default workspace name.
+    """
+
+    return client.workspaces.default.name
+
+
+def resolve_probe_dataset_name(
+    client: rg.Argilla,
+    *,
+    workspace_name: str,
+    dataset_name_prefix: str,
+) -> str:
+    """Resolve a non-conflicting dataset name in the target workspace.
+
+    Args:
+        client: Live Argilla client.
+        workspace_name: Target workspace name.
+        dataset_name_prefix: Requested dataset name prefix.
+
+    Returns:
+        Final dataset name.
+    """
+
+    existing_dataset = client.datasets(
+        name=dataset_name_prefix,
+        workspace=workspace_name,
+    )
+    if existing_dataset is None:
+        return dataset_name_prefix
+    timestamp_suffix = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
+    return f"{dataset_name_prefix}_{timestamp_suffix}"
 
 
 def _clean_text(value: object) -> str:
