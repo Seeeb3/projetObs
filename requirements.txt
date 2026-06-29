@@ -1,3 +1,31 @@
-click==8.3.1
-pydantic==2.12.5
-polars==1.39.3
+# Python dependencies for the active repository surface.
+#
+# System / external prerequisites not managed by pip:
+# - tesseract
+# - arxiv-downloader
+# - Chrome / Node for the Puppeteer download path
+
+# Core CLI / models
+click==8.3.0
+pydantic==2.12.0
+polars==1.37.1
+requests==2.31.0
+
+# PDF / image / canonical document
+Pillow==11.3.0
+PyMuPDF==1.27.2.3
+docling==2.92.0
+rapidocr==3.8.1
+
+# Local / multimodal LLM helpers
+openai>=1.0.0
+
+# Annotation
+argilla==2.8.0
+
+# Analysis / embeddings
+numpy==2.3.5
+plotly==6.6.0
+scikit-learn==1.7.0
+torch==2.11.0
+transformers==4.57.0
