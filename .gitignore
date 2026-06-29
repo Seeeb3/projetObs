@@ -10,3 +10,12 @@ __pycache__/
 .pytest_cache/
 artifacts/
 data/
+resources/
+
+# Playwright
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
