@@ -16,11 +16,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 from tools.analysis.heliophysics_embedding_audit import (  # noqa: E402
+    run_embedding_audit,
+)
+from tools.analysis.embedding_audit_models import (  # noqa: E402
     DEFAULT_EXPECTED_ROW_COUNT,
     DEFAULT_INDUS_MODEL_ID,
     EmbeddingSource,
     HeliophysicsEmbeddingAuditConfig,
-    run_embedding_audit,
 )
 
 
@@ -202,6 +204,7 @@ def main(
     )
 
     artifacts = run_embedding_audit(audit_config)
+
     click.echo(f"[*] Embedding source: {artifacts.summary.embedding_source}")
     click.echo("[*] Label counts:")
     for label, count in sorted(artifacts.summary.label_counts.items()):
@@ -209,6 +212,7 @@ def main(
     click.echo("[*] Median centroid distance by label:")
     for label, median_distance in sorted(artifacts.summary.label_distance_medians.items()):
         click.echo(f"    - {label}: {median_distance:.4f}")
+
     click.echo(f"[+] Projection HTML: {audit_config.output_html}")
     click.echo(f"[+] Point CSV: {audit_config.output_csv}")
     click.echo(f"[+] Candidate CSV: {audit_config.output_candidates_csv}")

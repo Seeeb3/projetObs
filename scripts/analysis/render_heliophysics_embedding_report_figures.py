@@ -145,6 +145,7 @@ def render_projection_figure(points_dataframe: pl.DataFrame, output_path: Path) 
     """
 
     figure, axes = plt.subplots(figsize=(8.8, 6.4))
+
     configure_axes(axes)
 
     helio_dataframe = points_dataframe.filter(pl.col("keyword_label") == "helio")
@@ -159,6 +160,7 @@ def render_projection_figure(points_dataframe: pl.DataFrame, output_path: Path) 
         linewidths=0.0,
         label=f"unlabeled ({unlabeled_dataframe.height})",
     )
+
     axes.scatter(
         helio_dataframe.get_column("projection_x").to_numpy(),
         helio_dataframe.get_column("projection_y").to_numpy(),
@@ -174,6 +176,7 @@ def render_projection_figure(points_dataframe: pl.DataFrame, output_path: Path) 
     axes.set_title("Projection 2D des articles helio validés et des candidats unlabeled")
     axes.set_xlabel("t-SNE 1")
     axes.set_ylabel("t-SNE 2")
+
     axes.legend(frameon=True, facecolor="white", edgecolor="#d0d0d0", loc="best")
 
     figure.tight_layout()
