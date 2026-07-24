@@ -166,6 +166,8 @@ def write_json_file(output_path: Path, payload: Any) -> None:
     """
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # force utf-8 and disable ascii escaping to preserve unicode characters
     output_path.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False),
         encoding="utf-8",

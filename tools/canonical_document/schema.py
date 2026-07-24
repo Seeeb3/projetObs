@@ -179,6 +179,7 @@ class BoundingBoxModel(BaseModel):
             The validated bounding box.
         """
 
+        # catch rotated/flipped OCR coords early to prevent rendering bugs
         if self.r < self.l:
             raise ValueError("Bounding box right edge cannot be left of the left edge.")
         return self
@@ -251,10 +252,13 @@ class DocumentMetadataModel(BaseModel):
             The validated document metadata model.
         """
 
+        # force complete DOI data to prevent inconsistent JSON/Markdown exports
         if self.doi is None and self.doi_url is None:
             return self
         if self.doi is None or self.doi_url is None:
             raise ValueError("doi and doi_url must either both be set or both be omitted.")
+
+        # strict prefix check for resolver consistency
         expected_doi_url = build_canonical_doi_url(self.doi)
         if self.doi_url != expected_doi_url:
             raise ValueError(
