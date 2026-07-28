@@ -17,7 +17,6 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from tools.ads_api import ADSClient, ADSCorpusEnrichmentRecord, normalize_doi_text
 
-
 DEFAULT_INPUT_TXT: Final[Path] = (
     PROJECT_ROOT / "data/processed/results/WIESP2022-NER_all_unique_bibcodes.txt"
 )
@@ -129,12 +128,20 @@ def normalize_ads_corpus_metadata_record(
     """
 
     resolved_title = (record.title or "").strip() or None
-    resolved_keywords = [keyword.strip() for keyword in record.keywords if keyword and keyword.strip()]
+    resolved_keywords = [
+        keyword.strip() for keyword in record.keywords if keyword and keyword.strip()
+    ]
     resolved_abstract = (record.abstract or "").strip() or None
     resolved_doi = (record.doi or "").strip() or None
     resolved_doi_normalized = normalize_doi_text(resolved_doi) or None
-    resolved_authors = [author.strip() for author in record.authors if author and author.strip()]
-    resolved_arxiv_ids = [arxiv_id.strip() for arxiv_id in record.arxiv_ids if arxiv_id and arxiv_id.strip()]
+    resolved_authors = [
+        author.strip() for author in record.authors if author and author.strip()
+    ]
+    resolved_arxiv_ids = [
+        arxiv_id.strip()
+        for arxiv_id in record.arxiv_ids
+        if arxiv_id and arxiv_id.strip()
+    ]
 
     if resolved_abstract is None:
         return ADSCorpusMetadataRecord(
@@ -184,7 +191,9 @@ def fetch_ads_corpus_metadata_by_bibcode(
     records_by_bibcode: dict[str, ADSCorpusMetadataRecord] = {}
     total_batches = (len(bibcodes) + batch_size - 1) // batch_size
 
-    for batch_index, start_index in enumerate(range(0, len(bibcodes), batch_size), start=1):
+    for batch_index, start_index in enumerate(
+        range(0, len(bibcodes), batch_size), start=1
+    ):
         if batch_index > 1:
             time.sleep(sleep_seconds)
 
@@ -204,7 +213,9 @@ def fetch_ads_corpus_metadata_by_bibcode(
 
         for bibcode in batch_bibcodes:
             ads_record = batch_metadata.get(bibcode, ADSCorpusEnrichmentRecord())
-            records_by_bibcode[bibcode] = normalize_ads_corpus_metadata_record(ads_record)
+            records_by_bibcode[bibcode] = normalize_ads_corpus_metadata_record(
+                ads_record
+            )
 
     return records_by_bibcode
 
@@ -240,7 +251,9 @@ def serialize_authors(authors: list[str]) -> str:
         Semicolon-delimited author string.
     """
 
-    return "; ".join(author for author in (author.strip() for author in authors) if author)
+    return "; ".join(
+        author for author in (author.strip() for author in authors) if author
+    )
 
 
 def build_ads_corpus_metadata_dataframe(

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 import click
 import polars as pl
 from pydantic import BaseModel, ConfigDict, Field
-
 
 DEFAULT_POSITIVE_KEYWORDS: tuple[str, ...] = ("Sun: heliosphere",)
 DEFAULT_POSITIVE_FRAGMENTS: tuple[str, ...] = (
@@ -84,14 +83,20 @@ class KeywordHeuristicConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    input_csv: Path = Field(..., description="ADS corpus metadata CSV used for row order")
+    input_csv: Path = Field(
+        ..., description="ADS corpus metadata CSV used for row order"
+    )
     output_csv: Path = Field(..., description="Output CSV with heuristic labels")
     output_with_abstracts_csv: Path = Field(
         ...,
         description="Output CSV with heuristic labels and abstract metadata",
     )
-    helio_only_output_csv: Path = Field(..., description="Output CSV containing only helio rows")
-    merged_output_csv: Path = Field(..., description="Canonical output CSV containing merged helio rows")
+    helio_only_output_csv: Path = Field(
+        ..., description="Output CSV containing only helio rows"
+    )
+    merged_output_csv: Path = Field(
+        ..., description="Canonical output CSV containing merged helio rows"
+    )
     positive_keywords: tuple[str, ...] = Field(
         default=DEFAULT_POSITIVE_KEYWORDS,
         description="ADS keyword entries treated as positive when matched exactly",
@@ -228,19 +233,25 @@ def build_keyword_heuristic_dataframe(
     """
     required_columns = {"bibcode", "title", "keywords"}
     if not required_columns.issubset(set(source_dataframe.columns)):
-        missing_columns = sorted(required_columns.difference(set(source_dataframe.columns)))
+        missing_columns = sorted(
+            required_columns.difference(set(source_dataframe.columns))
+        )
         raise ValueError(f"Input CSV is missing required columns: {missing_columns}")
 
     rows: list[dict[str, str | int]] = []
-    for row in source_dataframe.select(["bibcode", "title", "keywords"]).iter_rows(named=True):
+    for row in source_dataframe.select(["bibcode", "title", "keywords"]).iter_rows(
+        named=True
+    ):
         keywords = split_keywords(row["keywords"])
         matched_exact_positive_keywords = match_exact_keywords(
             keywords=keywords,
             target_keywords=positive_keywords,
         )
-        matched_positive_fragment_keywords, matched_positive_fragments = match_fragment_keywords(
-            keywords=keywords,
-            fragments=positive_fragments,
+        matched_positive_fragment_keywords, matched_positive_fragments = (
+            match_fragment_keywords(
+                keywords=keywords,
+                fragments=positive_fragments,
+            )
         )
         matched_negative_keywords, matched_negative_fragments = match_fragment_keywords(
             keywords=keywords,
@@ -299,7 +310,9 @@ def build_labeled_enriched_dataframe(
     """
 
     validate_enriched_source_dataframe(source_dataframe=source_dataframe)
-    _validate_unique_bibcodes(dataframe=labeled_dataframe, dataframe_name="labeled dataframe")
+    _validate_unique_bibcodes(
+        dataframe=labeled_dataframe, dataframe_name="labeled dataframe"
+    )
 
     label_columns_to_join = [
         column_name
@@ -328,7 +341,9 @@ def validate_enriched_source_dataframe(source_dataframe: pl.DataFrame) -> None:
         ValueError: If the enriched ADS schema is missing or bibcodes are duplicated.
     """
 
-    missing_columns = sorted(set(ENRICHED_SOURCE_REQUIRED_COLUMNS).difference(set(source_dataframe.columns)))
+    missing_columns = sorted(
+        set(ENRICHED_SOURCE_REQUIRED_COLUMNS).difference(set(source_dataframe.columns))
+    )
     if missing_columns:
         missing_text = ", ".join(missing_columns)
         raise ValueError(
@@ -336,10 +351,14 @@ def validate_enriched_source_dataframe(source_dataframe: pl.DataFrame) -> None:
             f"{missing_text}. Re-run fetch_ads_corpus_metadata.py to regenerate the enriched corpus CSV."
         )
 
-    _validate_unique_bibcodes(dataframe=source_dataframe, dataframe_name="source dataframe")
+    _validate_unique_bibcodes(
+        dataframe=source_dataframe, dataframe_name="source dataframe"
+    )
 
 
-def build_helio_merged_dataframe(labeled_enriched_dataframe: pl.DataFrame) -> pl.DataFrame:
+def build_helio_merged_dataframe(
+    labeled_enriched_dataframe: pl.DataFrame,
+) -> pl.DataFrame:
     """Build the canonical merged helio DataFrame without additional ADS fetches.
 
     Args:
@@ -349,14 +368,16 @@ def build_helio_merged_dataframe(labeled_enriched_dataframe: pl.DataFrame) -> pl
         Canonical merged helio DataFrame expected by downstream consumers.
     """
 
-    missing_columns = sorted(set(MERGED_OUTPUT_COLUMNS).difference(set(labeled_enriched_dataframe.columns)))
+    missing_columns = sorted(
+        set(MERGED_OUTPUT_COLUMNS).difference(set(labeled_enriched_dataframe.columns))
+    )
     if missing_columns:
-        raise ValueError(f"Labeled enriched dataframe is missing columns: {missing_columns}")
+        raise ValueError(
+            f"Labeled enriched dataframe is missing columns: {missing_columns}"
+        )
 
-    return (
-        labeled_enriched_dataframe
-        .filter(pl.col("keyword_label") == "helio")
-        .select(list(MERGED_OUTPUT_COLUMNS))
+    return labeled_enriched_dataframe.filter(pl.col("keyword_label") == "helio").select(
+        list(MERGED_OUTPUT_COLUMNS)
     )
 
 
@@ -379,8 +400,12 @@ def _validate_unique_bibcodes(dataframe: pl.DataFrame, dataframe_name: str) -> N
         .to_list()
     )
     if duplicate_bibcodes:
-        duplicate_preview = ", ".join(str(bibcode) for bibcode in duplicate_bibcodes[:10])
-        raise ValueError(f"{dataframe_name} contains duplicate bibcodes: {duplicate_preview}")
+        duplicate_preview = ", ".join(
+            str(bibcode) for bibcode in duplicate_bibcodes[:10]
+        )
+        raise ValueError(
+            f"{dataframe_name} contains duplicate bibcodes: {duplicate_preview}"
+        )
 
 
 @click.command()
@@ -396,14 +421,18 @@ def _validate_unique_bibcodes(dataframe: pl.DataFrame, dataframe_name: str) -> N
 @click.option(
     "--output-csv",
     type=click.Path(path_type=Path, dir_okay=False),
-    default=Path("data/processed/results/WIESP2022-NER_all_keyword_heuristic_labels.csv"),
+    default=Path(
+        "data/processed/results/WIESP2022-NER_all_keyword_heuristic_labels.csv"
+    ),
     show_default=True,
     help="Output CSV for heuristic labels.",
 )
 @click.option(
     "--output-with-abstracts-csv",
     type=click.Path(path_type=Path, dir_okay=False),
-    default=Path("data/processed/results/WIESP2022-NER_all_keyword_heuristic_labels_with_abstracts.csv"),
+    default=Path(
+        "data/processed/results/WIESP2022-NER_all_keyword_heuristic_labels_with_abstracts.csv"
+    ),
     show_default=True,
     help="Output CSV for heuristic labels with abstract metadata.",
 )
@@ -498,7 +527,9 @@ def main(
         helio_only_df.write_csv(config.helio_only_output_csv)
         click.echo(f"[+] Wrote helio-only export to {config.helio_only_output_csv}")
 
-        helio_merged_df = build_helio_merged_dataframe(labeled_enriched_dataframe=labeled_enriched_df)
+        helio_merged_df = build_helio_merged_dataframe(
+            labeled_enriched_dataframe=labeled_enriched_df
+        )
         config.merged_output_csv.parent.mkdir(parents=True, exist_ok=True)
         helio_merged_df.write_csv(config.merged_output_csv)
         click.echo(f"[+] Wrote merged helio export to {config.merged_output_csv}")

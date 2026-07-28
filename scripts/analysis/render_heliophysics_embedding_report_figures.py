@@ -7,10 +7,11 @@ from typing import Final
 
 import click
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.axes import Axes
 import polars as pl
+from matplotlib.axes import Axes
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 PROJECTION_FILENAME: Final[str] = "helio_embedding_projection.png"
@@ -91,7 +92,9 @@ def read_points_dataframe(points_csv: Path) -> pl.DataFrame:
     """
 
     dataframe = pl.read_csv(points_csv)
-    missing_columns = [column for column in REQUIRED_POINT_COLUMNS if column not in dataframe.columns]
+    missing_columns = [
+        column for column in REQUIRED_POINT_COLUMNS if column not in dataframe.columns
+    ]
     if missing_columns:
         raise ValueError(f"Points CSV is missing required columns: {missing_columns}")
     return dataframe.filter(pl.col("keyword_label").is_in(["helio", "unlabeled"]))
@@ -109,10 +112,14 @@ def read_candidates_dataframe(candidates_csv: Path) -> pl.DataFrame:
 
     dataframe = pl.read_csv(candidates_csv)
     missing_columns = [
-        column for column in REQUIRED_CANDIDATE_COLUMNS if column not in dataframe.columns
+        column
+        for column in REQUIRED_CANDIDATE_COLUMNS
+        if column not in dataframe.columns
     ]
     if missing_columns:
-        raise ValueError(f"Candidates CSV is missing required columns: {missing_columns}")
+        raise ValueError(
+            f"Candidates CSV is missing required columns: {missing_columns}"
+        )
     return dataframe.select(list(REQUIRED_CANDIDATE_COLUMNS))
 
 
@@ -130,10 +137,9 @@ def build_priority_projection_dataframe(
         Projection dataframe enriched with priority labels.
     """
 
-    return (
-        points_dataframe.join(candidates_dataframe, on="bibcode", how="left")
-        .with_columns(pl.col("preverification_priority").fill_null("none"))
-    )
+    return points_dataframe.join(
+        candidates_dataframe, on="bibcode", how="left"
+    ).with_columns(pl.col("preverification_priority").fill_null("none"))
 
 
 def render_projection_figure(points_dataframe: pl.DataFrame, output_path: Path) -> None:
@@ -149,7 +155,9 @@ def render_projection_figure(points_dataframe: pl.DataFrame, output_path: Path) 
     configure_axes(axes)
 
     helio_dataframe = points_dataframe.filter(pl.col("keyword_label") == "helio")
-    unlabeled_dataframe = points_dataframe.filter(pl.col("keyword_label") == "unlabeled")
+    unlabeled_dataframe = points_dataframe.filter(
+        pl.col("keyword_label") == "unlabeled"
+    )
 
     axes.scatter(
         unlabeled_dataframe.get_column("projection_x").to_numpy(),
@@ -173,7 +181,9 @@ def render_projection_figure(points_dataframe: pl.DataFrame, output_path: Path) 
         zorder=3,
     )
 
-    axes.set_title("Projection 2D des articles helio validés et des candidats unlabeled")
+    axes.set_title(
+        "Projection 2D des articles helio validés et des candidats unlabeled"
+    )
     axes.set_xlabel("t-SNE 1")
     axes.set_ylabel("t-SNE 2")
 
@@ -184,7 +194,9 @@ def render_projection_figure(points_dataframe: pl.DataFrame, output_path: Path) 
     plt.close(figure)
 
 
-def render_priorities_figure(priority_dataframe: pl.DataFrame, output_path: Path) -> None:
+def render_priorities_figure(
+    priority_dataframe: pl.DataFrame, output_path: Path
+) -> None:
     """Render the pre-verification priority figure.
 
     Args:

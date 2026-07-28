@@ -10,27 +10,27 @@ from typing import Final
 import click
 from pydantic import BaseModel, ConfigDict, Field
 
-
 PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-from tools.analysis.heliophysics_embedding_audit import (  # noqa: E402
-    run_embedding_audit,
-)
-from tools.analysis.embedding_audit_models import (  # noqa: E402
+from tools.analysis.embedding_audit_models import (
     DEFAULT_EXPECTED_ROW_COUNT,
     DEFAULT_INDUS_MODEL_ID,
     EmbeddingSource,
     HeliophysicsEmbeddingAuditConfig,
 )
-
+from tools.analysis.heliophysics_embedding_audit import (
+    run_embedding_audit,
+)
 
 DEFAULT_EMBEDDINGS_PARQUET: Final[Path] = (
-    PROJECT_ROOT / "data/processed/results/WIESP2022-NER_all_abstract_embeddings.parquet"
+    PROJECT_ROOT
+    / "data/processed/results/WIESP2022-NER_all_abstract_embeddings.parquet"
 )
 DEFAULT_METADATA_CSV: Final[Path] = (
-    PROJECT_ROOT / "data/processed/results/WIESP2022-NER_all_keyword_heuristic_labels_with_abstracts.csv"
+    PROJECT_ROOT
+    / "data/processed/results/WIESP2022-NER_all_keyword_heuristic_labels_with_abstracts.csv"
 )
 DEFAULT_REPORTS_DIR: Final[Path] = PROJECT_ROOT / "artifacts/reports"
 DEFAULT_ARTIFACT_PREFIX: Final[str] = "heliophysics_embedding"
@@ -59,7 +59,9 @@ class HeliophysicsEmbeddingAuditCliConfig(BaseModel):
     metadata_csv: Path = Field(default=DEFAULT_METADATA_CSV)
     reports_dir: Path = Field(default=DEFAULT_REPORTS_DIR)
     artifact_prefix: str = Field(default=DEFAULT_ARTIFACT_PREFIX, min_length=1)
-    run_date: str = Field(default_factory=lambda: date.today().isoformat(), min_length=10)
+    run_date: str = Field(
+        default_factory=lambda: date.today().isoformat(), min_length=10
+    )
     expected_row_count: int = Field(default=DEFAULT_EXPECTED_ROW_COUNT, ge=1)
     indus_model_id: str = Field(default=DEFAULT_INDUS_MODEL_ID, min_length=1)
     indus_batch_size: int = Field(default=64, ge=1)
@@ -83,7 +85,9 @@ def build_output_path(reports_dir: Path, filename: str) -> Path:
 @click.command()
 @click.option(
     "--embedding-source",
-    type=click.Choice([source.value for source in EmbeddingSource], case_sensitive=True),
+    type=click.Choice(
+        [source.value for source in EmbeddingSource], case_sensitive=True
+    ),
     default=EmbeddingSource.PRECOMPUTED.value,
     show_default=True,
     help="Embedding source used for the projection.",
@@ -210,7 +214,9 @@ def main(
     for label, count in sorted(artifacts.summary.label_counts.items()):
         click.echo(f"    - {label}: {count}")
     click.echo("[*] Median centroid distance by label:")
-    for label, median_distance in sorted(artifacts.summary.label_distance_medians.items()):
+    for label, median_distance in sorted(
+        artifacts.summary.label_distance_medians.items()
+    ):
         click.echo(f"    - {label}: {median_distance:.4f}")
 
     click.echo(f"[+] Projection HTML: {audit_config.output_html}")

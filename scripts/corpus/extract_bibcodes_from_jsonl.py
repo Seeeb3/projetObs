@@ -28,7 +28,9 @@ class JSONLBibcodeRecord(BaseModel):
         bibcode: Bibcode value when present.
     """
 
-    bibcode: str | None = Field(default=None, description="Bibcode stored in the record.")
+    bibcode: str | None = Field(
+        default=None, description="Bibcode stored in the record."
+    )
 
 
 def extract_unique_bibcodes(input_jsonl: Path) -> tuple[list[str], int, int]:
@@ -71,7 +73,7 @@ def extract_unique_bibcodes(input_jsonl: Path) -> tuple[list[str], int, int]:
             seen_bibcodes.add(bibcode)
             unique_bibcodes.append(bibcode)
 
-    return unique_bibcodes, total_records, 
+    return unique_bibcodes, total_records, 0
 
 
 def write_bibcodes(output_path: Path, bibcodes: list[str]) -> None:
@@ -108,9 +110,7 @@ def main(input_jsonl: Path, output: Path) -> None:
     config = ExtractBibcodesConfig(input_jsonl=input_jsonl, output=output)
 
     click.echo(f"[*] Reading records from {config.input_jsonl}...")
-    bibcodes, total_records,  = extract_unique_bibcodes(
-        config.input_jsonl
-    )
+    (bibcodes, total_records, _) = extract_unique_bibcodes(config.input_jsonl)
 
     write_bibcodes(config.output, bibcodes)
 
