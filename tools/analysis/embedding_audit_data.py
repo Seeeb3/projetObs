@@ -2,23 +2,25 @@
 
 from __future__ import annotations
 
+import click
 import numpy as np
 import polars as pl
-import click
 
 from tools.analysis.embedding_audit_models import (
     EMBEDDING_REQUIRED_COLUMNS,
-    EmbeddingSource,
-    HeliophysicsEmbeddingAuditConfig,
     INDUS_METADATA_REQUIRED_COLUMNS,
     PRECOMPUTED_METADATA_REQUIRED_COLUMNS,
+    EmbeddingSource,
+    HeliophysicsEmbeddingAuditConfig,
     load_metadata_dataframe,
     validate_required_columns,
     validate_unique_bibcodes,
 )
 
 
-def build_precomputed_audit_dataframe(config: HeliophysicsEmbeddingAuditConfig) -> pl.DataFrame:
+def build_precomputed_audit_dataframe(
+    config: HeliophysicsEmbeddingAuditConfig,
+) -> pl.DataFrame:
     """Build the joined audit dataframe from precomputed embeddings.
 
     Args:
@@ -29,7 +31,9 @@ def build_precomputed_audit_dataframe(config: HeliophysicsEmbeddingAuditConfig) 
     """
 
     if config.embeddings_parquet is None:
-        raise ValueError("embeddings_parquet is required for precomputed embedding mode")
+        raise ValueError(
+            "embeddings_parquet is required for precomputed embedding mode"
+        )
 
     embeddings_dataframe = pl.read_parquet(config.embeddings_parquet)
 
@@ -139,7 +143,9 @@ def mean_pool_last_hidden_state(
     return masked_hidden_state.sum(dim=1) / token_count
 
 
-def encode_texts_with_indus(config: HeliophysicsEmbeddingAuditConfig, texts: list[str]) -> np.ndarray:
+def encode_texts_with_indus(
+    config: HeliophysicsEmbeddingAuditConfig, texts: list[str]
+) -> np.ndarray:
     """Encode texts with the cached INDUS transformer model.
 
     Args:
@@ -170,14 +176,20 @@ def encode_texts_with_indus(config: HeliophysicsEmbeddingAuditConfig, texts: lis
     model.to("cpu")
 
     embedding_batches: list[np.ndarray] = []
-    total_batches = (len(texts) + config.indus_batch_size - 1) // config.indus_batch_size
+    total_batches = (
+        len(texts) + config.indus_batch_size - 1
+    ) // config.indus_batch_size
 
     with torch.inference_mode():
         for batch_start in range(0, len(texts), config.indus_batch_size):
             batch_texts = texts[batch_start : batch_start + config.indus_batch_size]
             batch_index = (batch_start // config.indus_batch_size) + 1
 
-            if batch_index == 1 or batch_index % 10 == 0 or batch_index == total_batches:
+            if (
+                batch_index == 1
+                or batch_index % 10 == 0
+                or batch_index == total_batches
+            ):
                 click.echo(
                     f"[*] INDUS encoding batch {batch_index}/{total_batches} "
                     f"({len(batch_texts)} texts)..."
@@ -217,7 +229,9 @@ def encode_texts_with_indus(config: HeliophysicsEmbeddingAuditConfig, texts: lis
     return embedding_matrix
 
 
-def build_indus_audit_dataframe(config: HeliophysicsEmbeddingAuditConfig) -> pl.DataFrame:
+def build_indus_audit_dataframe(
+    config: HeliophysicsEmbeddingAuditConfig,
+) -> pl.DataFrame:
     """Build the audit dataframe by encoding abstracts with INDUS.
 
     Args:
@@ -252,16 +266,13 @@ def build_indus_audit_dataframe(config: HeliophysicsEmbeddingAuditConfig) -> pl.
 
     embedding_backend = f"local_transformers_mean_pool:{config.indus_model_id}"
 
-    return (
-        indus_source_dataframe.with_columns(
-            [
-                pl.lit(embedding_backend).alias("embedding_backend"),
-                pl.lit(int(embedding_matrix.shape[1])).alias("embedding_dim"),
-                pl.Series("embedding", embedding_matrix.tolist()),
-            ]
-        )
-        .drop("indus_text")
-    )
+    return indus_source_dataframe.with_columns(
+        [
+            pl.lit(embedding_backend).alias("embedding_backend"),
+            pl.lit(int(embedding_matrix.shape[1])).alias("embedding_dim"),
+            pl.Series("embedding", embedding_matrix.tolist()),
+        ]
+    ).drop("indus_text")
 
 
 def build_audit_dataframe(config: HeliophysicsEmbeddingAuditConfig) -> pl.DataFrame:

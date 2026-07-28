@@ -49,9 +49,13 @@ def run_embedding_audit(config: HeliophysicsEmbeddingAuditConfig) -> AuditRunArt
         config,
     )
 
-    projection_dataframe = build_projection_dataframe(metric_dataframe, projection_coordinates)
+    projection_dataframe = build_projection_dataframe(
+        metric_dataframe, projection_coordinates
+    )
 
-    display_projection_dataframe = build_display_projection_dataframe(projection_dataframe)
+    display_projection_dataframe = build_display_projection_dataframe(
+        projection_dataframe
+    )
 
     candidate_dataframe = build_preverification_candidate_dataframe(
         projection_dataframe,

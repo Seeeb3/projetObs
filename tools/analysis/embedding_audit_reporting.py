@@ -8,12 +8,13 @@ import plotly.graph_objects as go
 import polars as pl
 
 from tools.analysis.embedding_audit_models import (
-    AuditSummaryModel,
     CANDIDATE_OUTPUT_COLUMNS,
-    EmbeddingSource,
     POINT_OUTPUT_COLUMNS,
     PROJECTION_COLOR_MAP,
+    AuditSummaryModel,
+    EmbeddingSource,
 )
+
 
 def build_projection_figure(projection_dataframe: pl.DataFrame) -> go.Figure:
     """Build the interactive Plotly figure for the projection.
@@ -75,7 +76,9 @@ def build_projection_figure(projection_dataframe: pl.DataFrame) -> go.Figure:
     return figure
 
 
-def write_projection_html(projection_dataframe: pl.DataFrame, output_html: Path) -> None:
+def write_projection_html(
+    projection_dataframe: pl.DataFrame, output_html: Path
+) -> None:
     """Write the projection figure to an HTML artifact.
 
     Args:
@@ -114,7 +117,9 @@ def write_candidate_csv(candidate_dataframe: pl.DataFrame, output_csv: Path) -> 
     candidate_dataframe.select(list(CANDIDATE_OUTPUT_COLUMNS)).write_csv(output_csv)
 
 
-def build_markdown_table(dataframe: pl.DataFrame, columns: list[str], max_rows: int) -> str:
+def build_markdown_table(
+    dataframe: pl.DataFrame, columns: list[str], max_rows: int
+) -> str:
     """Render a compact Markdown table from a dataframe slice.
 
     Args:
@@ -166,7 +171,7 @@ def build_audit_note(
         f"- Ranked unlabeled candidates: `{summary.candidate_count}`",
         f"- Embedding backend: `{summary.embedding_backend}`",
         f"- Embedding dimension: `{summary.embedding_dim}`",
-        f"- Projection method: `PCA -> t-SNE`",
+        "- Projection method: `PCA -> t-SNE`",
         f"- Nearest-neighbor count: `{summary.nearest_neighbor_count}`",
         f"- Helio core radius: `{summary.helio_core_radius:.4f}`",
         f"- Helio outer radius: `{summary.helio_outer_radius:.4f}`",
@@ -244,7 +249,9 @@ def build_audit_note(
             "## Closest Displayed Papers to the Helio Centroid",
             "",
             build_markdown_table(
-                dataframe=display_projection_dataframe.sort("helio_centroid_cosine_distance"),
+                dataframe=display_projection_dataframe.sort(
+                    "helio_centroid_cosine_distance"
+                ),
                 columns=[
                     "bibcode",
                     "keyword_label",

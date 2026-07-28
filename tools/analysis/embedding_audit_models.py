@@ -236,7 +236,9 @@ def validate_required_columns(
 
     missing_columns = sorted(set(required_columns).difference(dataframe.columns))
     if missing_columns:
-        raise ValueError(f"{name} is missing required columns: {', '.join(missing_columns)}")
+        raise ValueError(
+            f"{name} is missing required columns: {', '.join(missing_columns)}"
+        )
 
 
 def validate_unique_bibcodes(dataframe: pl.DataFrame, name: str) -> None:

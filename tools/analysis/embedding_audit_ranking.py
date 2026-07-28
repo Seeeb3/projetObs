@@ -13,6 +13,7 @@ from tools.analysis.embedding_audit_models import (
     HeliophysicsEmbeddingAuditConfig,
 )
 
+
 def build_preverification_candidate_dataframe(
     projection_dataframe: pl.DataFrame,
     thresholds: AuditThresholdsModel,
@@ -35,7 +36,10 @@ def build_preverification_candidate_dataframe(
         .then(pl.lit("high"))
         .when(
             (pl.col("helio_neighbor_ratio") >= 0.3)
-            & (pl.col("helio_centroid_cosine_distance") <= thresholds.helio_outer_radius)
+            & (
+                pl.col("helio_centroid_cosine_distance")
+                <= thresholds.helio_outer_radius
+            )
         )
         .then(pl.lit("medium"))
         .otherwise(pl.lit("low"))
@@ -113,7 +117,9 @@ def build_summary(
         .rename({"len": "row_count"})
         .iter_rows(named=True)
     }
-    embedding_backend = str(projection_dataframe.select("embedding_backend").unique().item())
+    embedding_backend = str(
+        projection_dataframe.select("embedding_backend").unique().item()
+    )
     embedding_dim = int(projection_dataframe.select("embedding_dim").unique().item())
 
     return AuditSummaryModel(
@@ -128,7 +134,9 @@ def build_summary(
         candidate_priority_counts=candidate_priority_counts,
         helio_core_radius=thresholds.helio_core_radius,
         helio_outer_radius=thresholds.helio_outer_radius,
-        nearest_neighbor_count=min(config.nearest_neighbor_count, projection_dataframe.height - 1),
+        nearest_neighbor_count=min(
+            config.nearest_neighbor_count, projection_dataframe.height - 1
+        ),
         embedding_backend=embedding_backend,
         embedding_dim=embedding_dim,
         indus_batch_size=(

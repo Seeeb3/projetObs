@@ -9,10 +9,11 @@ from sklearn.manifold import TSNE
 from sklearn.neighbors import NearestNeighbors
 
 from tools.analysis.embedding_audit_models import (
-    AuditThresholdsModel,
     DISPLAY_LABELS,
+    AuditThresholdsModel,
     HeliophysicsEmbeddingAuditConfig,
 )
+
 
 def build_embedding_matrix(dataframe: pl.DataFrame) -> np.ndarray:
     """Convert the embedding column to a dense float matrix.
@@ -121,7 +122,9 @@ def build_metric_dataframe(
         algorithm="brute",
     )
     nearest_neighbors.fit(normalized_embedding_matrix)
-    neighbor_distances, neighbor_indices = nearest_neighbors.kneighbors(normalized_embedding_matrix)
+    neighbor_distances, neighbor_indices = nearest_neighbors.kneighbors(
+        normalized_embedding_matrix
+    )
     neighbor_distances = neighbor_distances[:, 1:]
     neighbor_indices = neighbor_indices[:, 1:]
 
@@ -136,16 +139,25 @@ def build_metric_dataframe(
     helio_centroid_cosine_distance = 1.0 - helio_centroid_cosine_similarity
 
     helio_neighbor_counts = np.asarray(
-        [int(np.count_nonzero(helio_mask[neighbor_row])) for neighbor_row in neighbor_indices],
+        [
+            int(np.count_nonzero(helio_mask[neighbor_row]))
+            for neighbor_row in neighbor_indices
+        ],
         dtype=np.int32,
     )
-    helio_neighbor_ratios = helio_neighbor_counts.astype(np.float32) / float(neighbor_count)
+    helio_neighbor_ratios = helio_neighbor_counts.astype(np.float32) / float(
+        neighbor_count
+    )
     local_mean_cosine_distance = neighbor_distances.mean(axis=1).astype(np.float32)
 
     helio_distances = helio_centroid_cosine_distance[helio_mask]
     thresholds = AuditThresholdsModel(
-        helio_core_radius=float(np.quantile(helio_distances, config.helio_core_radius_quantile)),
-        helio_outer_radius=float(np.quantile(helio_distances, config.helio_outer_radius_quantile)),
+        helio_core_radius=float(
+            np.quantile(helio_distances, config.helio_core_radius_quantile)
+        ),
+        helio_outer_radius=float(
+            np.quantile(helio_distances, config.helio_outer_radius_quantile)
+        ),
     )
 
     metric_dataframe = audit_dataframe.with_columns(
@@ -196,7 +208,9 @@ def build_projection_dataframe(
     return projection_dataframe
 
 
-def build_display_projection_dataframe(projection_dataframe: pl.DataFrame) -> pl.DataFrame:
+def build_display_projection_dataframe(
+    projection_dataframe: pl.DataFrame,
+) -> pl.DataFrame:
     """Filter the projection to the labels shown in the pre-verification view.
 
     Args:
@@ -211,6 +225,13 @@ def build_display_projection_dataframe(projection_dataframe: pl.DataFrame) -> pl
     )
     if display_projection_dataframe.height == 0:
         raise ValueError("The display projection dataframe is empty")
-    if display_projection_dataframe.filter(pl.col("keyword_label") == "not_helio").height > 0:
-        raise ValueError("The display projection dataframe unexpectedly contains not_helio rows")
+    if (
+        display_projection_dataframe.filter(
+            pl.col("keyword_label") == "not_helio"
+        ).height
+        > 0
+    ):
+        raise ValueError(
+            "The display projection dataframe unexpectedly contains not_helio rows"
+        )
     return display_projection_dataframe
