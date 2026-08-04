@@ -8,7 +8,6 @@ from typing import Final, Sequence
 import argilla as rg
 import polars as pl
 
-
 VISIBLE_FIELD_NAMES: Final[tuple[str, ...]] = (
     "title",
     "authors",
@@ -104,15 +103,12 @@ def build_records_from_dataframe(
         Argilla records with no suggestions or responses.
     """
 
-    selected_columns = list(
-        dict.fromkeys([id_column, *field_names, *metadata_names])
-    )
+    selected_columns = list(dict.fromkeys([id_column, *field_names, *metadata_names]))
     records: list[rg.Record] = []
     for row in dataframe.select(selected_columns).iter_rows(named=True):
         record_id = _clean_text(row[id_column])
         fields = {
-            field_name: _clean_text(row[field_name])
-            for field_name in field_names
+            field_name: _clean_text(row[field_name]) for field_name in field_names
         }
         metadata = {
             metadata_name: _clean_text(row[metadata_name])

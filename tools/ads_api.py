@@ -7,7 +7,6 @@ from pydantic import BaseModel, Field
 
 from tools.local_env import load_local_env_file
 
-
 ADS_API_BASE_URL: Final[str] = "https://api.adsabs.harvard.edu/v1/search/query"
 ADS_UI_BASE_URL: Final[str] = "https://ui.adsabs.harvard.edu"
 ADS_FULLTEXT_SOURCE_PRIORITY: Final[List[str]] = [
@@ -21,8 +20,12 @@ DOI_PREFIXES: Final[tuple[str, ...]] = (
     "http://doi.org/",
     "doi:",
 )
-ARXIV_PREFIX_PATTERN: Final[Pattern[str]] = re.compile(r"^arxiv:(?P<arxiv_id>.+)$", re.IGNORECASE)
-ARXIV_NEW_ID_PATTERN: Final[Pattern[str]] = re.compile(r"^\d{4}\.\d{4,5}(?:v\d+)?$", re.IGNORECASE)
+ARXIV_PREFIX_PATTERN: Final[Pattern[str]] = re.compile(
+    r"^arxiv:(?P<arxiv_id>.+)$", re.IGNORECASE
+)
+ARXIV_NEW_ID_PATTERN: Final[Pattern[str]] = re.compile(
+    r"^\d{4}\.\d{4,5}(?:v\d+)?$", re.IGNORECASE
+)
 ARXIV_OLD_ID_PATTERN: Final[Pattern[str]] = re.compile(
     r"^[a-z-]+(?:\.[A-Za-z]{2})?/\d{7}(?:v\d+)?$",
     re.IGNORECASE,
@@ -57,16 +60,19 @@ def normalize_doi_text(raw_doi: str | None) -> str:
 
 class ADSDoc(BaseModel):
     """Represents a document returned by NASA ADS API.
-    
+
     Attributes:
         bibcode: The entry's bibcode.
         doi: List of DOIs associated with the bibcode.
     """
+
     bibcode: str
     doi: Optional[List[str]] = Field(default_factory=list)
 
+
 class ADSResponse(BaseModel):
     """Represents the response structure from NASA ADS API."""
+
     docs: List[ADSDoc]
 
 
@@ -486,13 +492,25 @@ def build_doi_resolution_record(
     """
 
     resolved_doi = next(
-        (candidate for candidate in (normalize_doi_text(value) for value in doc.doi) if candidate),
+        (
+            candidate
+            for candidate in (normalize_doi_text(value) for value in doc.doi)
+            if candidate
+        ),
         None,
     )
-    resolved_title = next((title.strip() for title in doc.title if title and title.strip()), None)
-    resolved_keywords = [keyword.strip() for keyword in doc.keyword if keyword and keyword.strip()]
-    resolved_authors = [author.strip() for author in doc.author if author and author.strip()]
-    resolved_abstract = doc.abstract.strip() if doc.abstract and doc.abstract.strip() else None
+    resolved_title = next(
+        (title.strip() for title in doc.title if title and title.strip()), None
+    )
+    resolved_keywords = [
+        keyword.strip() for keyword in doc.keyword if keyword and keyword.strip()
+    ]
+    resolved_authors = [
+        author.strip() for author in doc.author if author and author.strip()
+    ]
+    resolved_abstract = (
+        doc.abstract.strip() if doc.abstract and doc.abstract.strip() else None
+    )
 
     return ADSDoiResolutionRecord(
         bibcode=doc.bibcode.strip() or None,
@@ -517,11 +535,19 @@ def build_corpus_enrichment_record(
         Normalized corpus-enrichment record.
     """
 
-    resolved_title = next((title.strip() for title in doc.title if title and title.strip()), None)
-    resolved_keywords = [keyword.strip() for keyword in doc.keyword if keyword and keyword.strip()]
-    resolved_abstract = doc.abstract.strip() if doc.abstract and doc.abstract.strip() else None
+    resolved_title = next(
+        (title.strip() for title in doc.title if title and title.strip()), None
+    )
+    resolved_keywords = [
+        keyword.strip() for keyword in doc.keyword if keyword and keyword.strip()
+    ]
+    resolved_abstract = (
+        doc.abstract.strip() if doc.abstract and doc.abstract.strip() else None
+    )
     resolved_doi = next((doi.strip() for doi in doc.doi if doi and doi.strip()), None)
-    resolved_authors = [author.strip() for author in doc.author if author and author.strip()]
+    resolved_authors = [
+        author.strip() for author in doc.author if author and author.strip()
+    ]
 
     return ADSCorpusEnrichmentRecord(
         title=resolved_title,
@@ -557,7 +583,9 @@ class ADSClient:
 
         return {"Authorization": f"Bearer {self.token}"}
 
-    def _run_search_query(self, query: str, rows: int, fields: str) -> Dict[str, object]:
+    def _run_search_query(
+        self, query: str, rows: int, fields: str
+    ) -> Dict[str, object]:
         """Run one ADS search query.
 
         Args:
@@ -622,28 +650,28 @@ class ADSClient:
 
     def get_dois_from_bibcodes(self, bibcodes: List[str]) -> Dict[str, Optional[str]]:
         """Fetches DOIs for a list of bibcodes using search query endpoint (GET).
-        
+
         Args:
             bibcodes: List of bibcodes to resolve.
-            
+
         Returns:
             Dictionary mapping bibcode to its first DOI if found.
         """
         data = self._run_query(bibcodes=bibcodes, fields="bibcode,doi")
         if "response" not in data:
             return {b: None for b in bibcodes}
-            
+
         ads_res = ADSResponse(docs=data["response"]["docs"])
-        
+
         mapping = {}
         for doc in ads_res.docs:
             mapping[doc.bibcode] = doc.doi[0] if doc.doi else None
-            
+
         # Ensure all requested bibcodes are in the result
         for bc in bibcodes:
             if bc not in mapping:
                 mapping[bc] = None
-                
+
         return mapping
 
     def get_esources_from_bibcodes(self, bibcodes: List[str]) -> Dict[str, List[str]]:
@@ -672,7 +700,9 @@ class ADSClient:
 
         return mapping
 
-    def get_abstracts_from_bibcodes(self, bibcodes: List[str]) -> Dict[str, Optional[str]]:
+    def get_abstracts_from_bibcodes(
+        self, bibcodes: List[str]
+    ) -> Dict[str, Optional[str]]:
         """Fetches abstracts for a list of bibcodes using the ADS search endpoint.
 
         Args:
@@ -711,10 +741,7 @@ class ADSClient:
         """
         data = self._run_query(bibcodes=bibcodes, fields="bibcode,title,keyword")
         if "response" not in data:
-            return {
-                bibcode: {"title": [], "keyword": []}
-                for bibcode in bibcodes
-            }
+            return {bibcode: {"title": [], "keyword": []} for bibcode in bibcodes}
 
         ads_res = ADSMetadataResponse(docs=data["response"]["docs"])
 
@@ -745,10 +772,7 @@ class ADSClient:
         """
         data = self._run_query(bibcodes=bibcodes, fields="bibcode,title,abstract")
         if "response" not in data:
-            return {
-                bibcode: {"title": None, "abstract": None}
-                for bibcode in bibcodes
-            }
+            return {bibcode: {"title": None, "abstract": None} for bibcode in bibcodes}
 
         ads_res = ADSTitleAbstractResponse(docs=data["response"]["docs"])
 
@@ -809,10 +833,7 @@ class ADSClient:
             fields="bibcode,doi,abstract,author,esources,identifier",
         )
         if "response" not in data:
-            return {
-                bibcode: ADSArticleEnrichmentRecord()
-                for bibcode in bibcodes
-            }
+            return {bibcode: ADSArticleEnrichmentRecord() for bibcode in bibcodes}
 
         ads_res = ADSArticleEnrichmentResponse(docs=data["response"]["docs"])
 
@@ -838,12 +859,11 @@ class ADSClient:
         Returns:
             Dictionary mapping bibcode to normalized metadata.
         """
-        data = self._run_query(bibcodes=bibcodes, fields="bibcode,title,abstract,keyword")
+        data = self._run_query(
+            bibcodes=bibcodes, fields="bibcode,title,abstract,keyword"
+        )
         if "response" not in data:
-            return {
-                bibcode: ADSFullMetadataRecord()
-                for bibcode in bibcodes
-            }
+            return {bibcode: ADSFullMetadataRecord() for bibcode in bibcodes}
 
         ads_res = ADSFullMetadataResponse(docs=data["response"]["docs"])
 
@@ -879,10 +899,7 @@ class ADSClient:
             fields="bibcode,title,abstract,keyword,doi,author,identifier",
         )
         if "response" not in data:
-            return {
-                bibcode: ADSCorpusEnrichmentRecord()
-                for bibcode in bibcodes
-            }
+            return {bibcode: ADSCorpusEnrichmentRecord() for bibcode in bibcodes}
 
         ads_res = ADSCorpusEnrichmentResponse(docs=data["response"]["docs"])
 
@@ -1039,9 +1056,16 @@ class ADSClient:
             ),
             best_fulltext_source=best_fulltext_source,
             arxiv_ids=arxiv_ids,
-            arxiv_abs_urls=[self._build_arxiv_abs_url(arxiv_id=arxiv_id) for arxiv_id in arxiv_ids],
-            arxiv_pdf_urls=[self._build_arxiv_pdf_url(arxiv_id=arxiv_id) for arxiv_id in arxiv_ids],
-            arxiv_eprint_urls=[self._build_arxiv_eprint_url(arxiv_id=arxiv_id) for arxiv_id in arxiv_ids],
+            arxiv_abs_urls=[
+                self._build_arxiv_abs_url(arxiv_id=arxiv_id) for arxiv_id in arxiv_ids
+            ],
+            arxiv_pdf_urls=[
+                self._build_arxiv_pdf_url(arxiv_id=arxiv_id) for arxiv_id in arxiv_ids
+            ],
+            arxiv_eprint_urls=[
+                self._build_arxiv_eprint_url(arxiv_id=arxiv_id)
+                for arxiv_id in arxiv_ids
+            ],
         )
 
     def _build_ads_abstract_url(self, bibcode: str) -> str:

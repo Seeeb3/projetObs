@@ -17,7 +17,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from tools.local_env import load_local_env_file
 
-
 ALBERT_DEFAULT_BASE_URL: Final[str] = "https://albert.api.etalab.gouv.fr/v1"
 ALBERT_TOKEN_ENV_NAMES: Final[tuple[str, ...]] = (
     "ALBERT_API_KEY",
@@ -206,7 +205,9 @@ class AlbertClient:
             api_key: Bearer token. Defaults to local environment variables.
         """
         load_local_env_file()
-        self.base_url = (base_url or os.environ.get("ALBERT_BASE_URL") or ALBERT_DEFAULT_BASE_URL).rstrip("/")
+        self.base_url = (
+            base_url or os.environ.get("ALBERT_BASE_URL") or ALBERT_DEFAULT_BASE_URL
+        ).rstrip("/")
         self.api_key = api_key or self._load_api_key()
 
     def _load_api_key(self) -> str:
@@ -446,7 +447,9 @@ def sanitize_response_payload_for_logging(payload: dict[str, Any]) -> dict[str, 
         """Sanitize one nested value recursively."""
 
         if isinstance(value, dict):
-            return {key: sanitize_value(nested_value) for key, nested_value in value.items()}
+            return {
+                key: sanitize_value(nested_value) for key, nested_value in value.items()
+            }
         if isinstance(value, list):
             return [sanitize_value(item) for item in value]
         if isinstance(value, str):
@@ -547,7 +550,9 @@ def extract_chat_completion_text_result(
         ValueError: If the payload does not contain extractable assistant text.
     """
 
-    normalized_payload = AlbertChatCompletionResponseModel.model_validate(response_payload)
+    normalized_payload = AlbertChatCompletionResponseModel.model_validate(
+        response_payload
+    )
     if len(normalized_payload.choices) == 0:
         raise ValueError("ALBERT response does not contain any choices.")
 
