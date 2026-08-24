@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Final
 
@@ -60,7 +60,8 @@ class HeliophysicsEmbeddingAuditCliConfig(BaseModel):
     reports_dir: Path = Field(default=DEFAULT_REPORTS_DIR)
     artifact_prefix: str = Field(default=DEFAULT_ARTIFACT_PREFIX, min_length=1)
     run_date: str = Field(
-        default_factory=lambda: date.today().isoformat(), min_length=10
+        default_factory=lambda: datetime.now(timezone.utc).date().isoformat(),
+        min_length=10,
     )
     expected_row_count: int = Field(default=DEFAULT_EXPECTED_ROW_COUNT, ge=1)
     indus_model_id: str = Field(default=DEFAULT_INDUS_MODEL_ID, min_length=1)
@@ -123,7 +124,7 @@ def build_output_path(reports_dir: Path, filename: str) -> Path:
 @click.option(
     "--run-date",
     type=str,
-    default=date.today().isoformat(),
+    default=datetime.now(timezone.utc).date().isoformat(),
     show_default=True,
     help="Date suffix used in output artifact names.",
 )
