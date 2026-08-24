@@ -246,10 +246,7 @@ def build_label_mapping_dict(
         Source-to-target label dictionary.
     """
 
-    return {
-        mapping.source_label: mapping.target_label
-        for mapping in label_mappings
-    }
+    return {mapping.source_label: mapping.target_label for mapping in label_mappings}
 
 
 def run_label_mapping(config: WIESPLabelMappingRunConfig) -> WIESPLabelRemapResultModel:
@@ -269,15 +266,20 @@ def run_label_mapping(config: WIESPLabelMappingRunConfig) -> WIESPLabelRemapResu
     tag_rewrites = 0
     rows_changed = 0
 
-    with config.input_jsonl.open(encoding="utf-8") as input_handle, config.output_jsonl.open(
-        "w",
-        encoding="utf-8",
-    ) as output_handle:
+    with (
+        config.input_jsonl.open(encoding="utf-8") as input_handle,
+        config.output_jsonl.open(
+            "w",
+            encoding="utf-8",
+        ) as output_handle,
+    ):
         for line in input_handle:
             record = json.loads(line)
-            rewritten_record, changed_count, record_source_counts = remap_record_with_mapping(
-                record=record,
-                label_mapping=label_mapping,
+            rewritten_record, changed_count, record_source_counts = (
+                remap_record_with_mapping(
+                    record=record,
+                    label_mapping=label_mapping,
+                )
             )
             output_handle.write(json.dumps(rewritten_record, ensure_ascii=False) + "\n")
             records_processed += 1
